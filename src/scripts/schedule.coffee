@@ -12,18 +12,10 @@
 #   HUBOT_SCHEDULE_LIST_REPLACE_TEXT - set JSON object like '{"@":"[at]"}' to configure text replacement used when listing scheduled messages
 #
 # Commands:
-#   hubot schedule [add|new] "<datetime pattern>" <message> - Schedule a message that runs on a specific date and time
-#   hubot schedule [add|new] "<cron pattern>" <message> - Schedule a message that runs recurrently
-#   hubot schedule [add|new] #<room> "<datetime pattern>" <message> - Schedule a message to a specific room that runs on a specific date and time
-#   hubot schedule [add|new] #<room> "<cron pattern>" <message> - Schedule a message to a specific room that runs recurrently
-#   hubot schedule [cancel|del|delete|remove] <id> - Cancel the schedule
-#   hubot schedule [upd|update] <id> <message> - Update scheduled message
-#   hubot schedule list - List all scheduled messages for current room
-#   hubot schedule list #<room> - List all scheduled messages for specified room
-#   hubot schedule list all - List all scheduled messages for any rooms
+#   hubot schedule - Schedule messages that run on specific frequency or date and time.
 #
 # Author:
-#   matsukaz <matsukaz@gmail.com>
+#   matsukaz <matsukaz@gmail.com>, modified by rophy <tsaiyl@tw.ibm.com>
 
 # configuration settings
 config =
@@ -41,22 +33,58 @@ JOB_MAX_COUNT = 10000
 STORE_KEY = 'hubot_schedule'
 
 module.exports = (robot) ->
+
+  cmds = [
+    'schedule add "<datetime pattern>" <message> - Schedule a message that runs on a specific date and time',
+    'schedule add "<cron pattern>" <message> - Schedule a message that runs recurrently',
+    'schedule delete <id> - Cancel the schedule',
+    'schedule update <id> <message> - Update scheduled message',
+    'schedule list - List all scheduled messages for current room'
+  ]
+
   robot.brain.on 'loaded', =>
     syncSchedules robot
 
   if !robot.brain.get(STORE_KEY)
     robot.brain.set(STORE_KEY, {})
+  
+  showHelp = (msg, cmd) ->
+    text = ''
+    cmds.forEach (help) ->
+      if not cmd or help.indexOf(cmd) == 0
+        text += "#{robot.name} #{help}\n"
+    msg.send text
+  
+  parse = (msg) ->
+    actionStr = msg.match[1]
+    idx = actionStr.indexOf ' '
+    if idx == -1
+      action = actionStr
+    else
+      action = actionStr.substring 0, idx
+    if actionHandlers[action]
+      actionHandlers[action](msg)
+    else
+      showHelp(msg)
 
-  robot.respond /schedule (?:new|add)(?: #(.*))? "(.*?)" ((?:.|\s)*)$/i, (msg) ->
-    target_room = msg.match[1]
+  
+  robot.respond /schedule$/i, showHelp
+  robot.respond /schedule\s+(.*)$/i, parse
+
+  actionHandlers = {}
+  actionHandlers['add'] = (msg) ->
+    match = msg.message.text.match /schedule (?:new|add)(?: #(.*))? "(.*?)" ((?:.|\s)*)$/i
+    if not match then return showHelp msg, 'schedule add'
+    target_room = match[1]
 
     if not is_blank(target_room) and isRestrictedRoom(target_room, robot, msg)
       return msg.send "Creating schedule for the other room is restricted"
-    schedule robot, msg, target_room, msg.match[2], msg.match[3]
+    schedule robot, msg, target_room, match[2], match[3]
 
-
-  robot.respond /schedule list(?: (all|#.*))?/i, (msg) ->
-    target_room = msg.match[1]
+  actionHandlers['list'] = (msg) ->
+    match = msg.message.text.match /schedule list(?: (all|#.*))?/i
+    if not match then return showHelp msg, 'schedule list'
+    target_room = match[1]
     if is_blank(target_room) or config.deny_external_control is '1'
       # if target_room is undefined or blank, show schedule for current room
       # room is ignored when HUBOT_SCHEDULE_DENY_EXTERNAL_CONTROL is set to 1
@@ -91,12 +119,15 @@ module.exports = (robot) ->
     else
       msg.send 'No messages have been scheduled'
 
-  robot.respond /schedule (?:upd|update) (\d+) ((?:.|\s)*)/i, (msg) ->
-    updateSchedule robot, msg, msg.match[1], msg.match[2]
+  actionHandlers['update'] = (msg) ->
+    match = msg.message.text.match /schedule (?:upd|update) (\d+) ((?:.|\s)*)/i
+    if not match then return showHelp msg, 'schedule update'
+    updateSchedule robot, msg, match[1], match[2]
 
-  robot.respond /schedule (?:del|delete|remove|cancel) (\d+)/i, (msg) ->
-    cancelSchedule robot, msg, msg.match[1]
-
+  actionHandlers['delete'] = (msg) ->
+    match = msg.message.text.match /schedule (?:del|delete|remove|cancel) (\d+)/i
+    if not match then return showHelp msg, 'schedule delete'
+    cancelSchedule robot, msg, match[1]
 
 schedule = (robot, msg, room, pattern, message) ->
   if JOB_MAX_COUNT <= Object.keys(JOBS).length
