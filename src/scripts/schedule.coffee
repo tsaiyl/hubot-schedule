@@ -73,7 +73,9 @@ module.exports = (robot) ->
 
   actionHandlers = {}
   actionHandlers['add'] = (msg) ->
-    match = msg.message.text.match /schedule (?:new|add)(?: #(.*))? "(.*?)" ((?:.|\s)*)$/i
+    # Mac smart quotes issue: https://github.com/wilhelmklopp/simple-poll/issues/2#issuecomment-169005752
+    text = msg.message.text.replace /["\u201C\u201D]/g, '"'
+    match = text.match /schedule (?:new|add)(?: #(.*))? "(.*?)" ((?:.|\s)*)$/i
     if not match then return showHelp msg, 'schedule add'
     target_room = match[1]
 
